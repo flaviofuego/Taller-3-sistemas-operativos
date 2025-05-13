@@ -199,10 +199,5 @@ valgrind ./notas_malloc_indices
 
 This project is provided for educational purposes under the MIT License.
 
-## Acknowledgments
-
-This workshop was designed as part of a Linux systems programming course to teach fundamental concepts of process management and memory allocation in C.
-
 ---
 
-*Note: For the purposes of this academic exercise, error handling has been implemented, but in a production environment, even more robust error checking would be recommended.*
