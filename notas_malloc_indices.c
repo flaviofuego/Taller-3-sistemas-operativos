@@ -3,14 +3,13 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <string.h>
-
 #define MAX_LINE 1024
 
 int main() {
     FILE *file;
     char line[MAX_LINE];
     int num_secciones, i, j;
-    float **notas;  // Arreglo de arreglos para almacenar las notas
+    float **notas;
     int *num_estudiantes;  // Arreglo para almacenar el número de estudiantes por sección
     
     // Abrir el archivo de notas
@@ -51,6 +50,7 @@ int main() {
         notas[i] = (float *)malloc(num_estudiantes[i] * sizeof(float));
         if (notas[i] == NULL) {
             perror("Error al asignar memoria");
+            
             // Liberar la memoria ya asignada
             for (j = 0; j < i; j++) {
                 free(notas[j]);
@@ -70,16 +70,15 @@ int main() {
             token = strtok(NULL, " \n");
             j++;
         }
-    }
     
     fclose(file);
     
     // Crear pipe para cada sección (comunicación hijo -> padre)
     int pipes[num_secciones][2];
-    
     for (i = 0; i < num_secciones; i++) {
         if (pipe(pipes[i]) == -1) {
             perror("Error al crear pipe");
+            
             // Liberar memoria y salir
             for (j = 0; j < num_secciones; j++) {
                 free(notas[j]);
@@ -97,11 +96,7 @@ int main() {
     for (i = 0; i < num_secciones; i++) {
         pid = fork();
         
-        if (pid < 0) {
-            perror("Error al crear proceso hijo");
-            return 1;
-        } else if (pid == 0) {
-            // Proceso hijo
+        if (pid == 0) { // Proceso hijo
             // Cerrar extremos no usados de pipes
             for (j = 0; j < num_secciones; j++) {
                 if (j != i) {
@@ -122,8 +117,7 @@ int main() {
             }
             printf("\n");
             
-            // Calcular promedio
-            float promedio = suma / num_estudiantes[i];
+            float promedio = suma / num_estudiantes[i]; // Calcular promedio
             
             // Enviar el promedio al padre
             write(pipes[i][1], &promedio, sizeof(float));
@@ -138,7 +132,7 @@ int main() {
             free(notas);
             free(num_estudiantes);
             
-            exit(0);  // Terminar proceso hijo
+            exit(0);
         }
     }
     
@@ -148,7 +142,6 @@ int main() {
     for (i = 0; i < num_secciones; i++) {
         close(pipes[i][1]);
     }
-    
     // Esperar a todos los hijos
     for (i = 0; i < num_secciones; i++) {
         wait(NULL);
