@@ -70,7 +70,9 @@ int main() {
             token = strtok(NULL, " \n");
             j++;
         }
+    }
     
+    // AQUÍ SE MOVIÓ EL fclose - DESPUÉS del for loop
     fclose(file);
     
     // Crear pipe para cada sección (comunicación hijo -> padre)
