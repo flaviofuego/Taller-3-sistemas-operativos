@@ -3,7 +3,6 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <string.h>
-
 #define MAX_LINE 1024
 
 int main() {
@@ -13,18 +12,15 @@ int main() {
     float **notas;
     int *num_estudiantes;
     
-    // Abrir el archivo de notas
     file = fopen("notas.txt", "r");
     if (file == NULL) {
         perror("Error al abrir el archivo");
         return 1;
     }
     
-    // Leer el número de secciones
     fgets(line, MAX_LINE, file);
     num_secciones = atoi(line);
     
-    // Asignar memoria dinámica para almacenar el número de estudiantes por sección
     num_estudiantes = (int *)malloc(num_secciones * sizeof(int));
     if (num_estudiantes == NULL) {
         perror("Error al asignar memoria");
@@ -32,7 +28,6 @@ int main() {
         return 1;
     }
     
-    // Asignar memoria para el arreglo de punteros a las notas de cada sección
     notas = (float **)malloc(num_secciones * sizeof(float *));
     if (notas == NULL) {
         perror("Error al asignar memoria");
@@ -41,17 +36,13 @@ int main() {
         return 1;
     }
     
-    // Leer la información de cada sección
     for (i = 0; i < num_secciones; i++) {
-        // Leer número de estudiantes en esta sección
         fgets(line, MAX_LINE, file);
         *(num_estudiantes + i) = atoi(line);
         
-        // Asignar memoria para las notas de esta sección
         *(notas + i) = (float *)malloc(*(num_estudiantes + i) * sizeof(float));
         if (*(notas + i) == NULL) {
             perror("Error al asignar memoria");
-            // Liberar la memoria ya asignada
             for (j = 0; j < i; j++) {
                 free(*(notas + j));
             }
@@ -61,7 +52,6 @@ int main() {
             return 1;
         }
         
-        // Leer las notas de esta sección
         fgets(line, MAX_LINE, file);
         char *token = strtok(line, " \n");
         j = 0;
@@ -74,13 +64,12 @@ int main() {
     
     fclose(file);
     
-    // Crear pipe para cada sección (comunicación hijo -> padre)
-    int pipes[num_secciones][2];
+    int pipes_to_child[num_secciones][2];  
+    int pipes_from_child[num_secciones][2]; 
     
     for (i = 0; i < num_secciones; i++) {
-        if (pipe(pipes[i]) == -1) {
+        if (pipe(pipes_to_child[i]) == -1 || pipe(pipes_from_child[i]) == -1) {
             perror("Error al crear pipe");
-            // Liberar memoria y salir
             for (j = 0; j < num_secciones; j++) {
                 free(*(notas + j));
             }
@@ -90,98 +79,96 @@ int main() {
         }
     }
     
-    // Crear un proceso hijo para cada sección
-    pid_t pid;
+    pid_t pids[num_secciones];  
     float promedios[num_secciones];
     
     for (i = 0; i < num_secciones; i++) {
-        pid = fork();
+        pids[i] = fork();
         
-        if (pid < 0) {
+        if (pids[i] < 0) {
             perror("Error al crear proceso hijo");
             return 1;
-        } else if (pid == 0) {
-            // Proceso hijo
-            // Cerrar extremos no usados de pipes
+        } else if (pids[i] == 0) {
+            
             for (j = 0; j < num_secciones; j++) {
                 if (j != i) {
-                    close(pipes[j][0]);
-                    close(pipes[j][1]);
+                    close(pipes_to_child[j][0]);
+                    close(pipes_to_child[j][1]);
+                    close(pipes_from_child[j][0]);
+                    close(pipes_from_child[j][1]);
                 } else {
-                    close(pipes[j][0]);  // El hijo no lee de este pipe
+                    close(pipes_to_child[j][1]);
+                    close(pipes_from_child[j][0]);
                 }
             }
             
-            // Imprimir las notas recibidas
+            int num_est;
+            read(pipes_to_child[i][0], &num_est, sizeof(int));
+            
+            float *notas_seccion = (float *)malloc(num_est * sizeof(float));
+            read(pipes_to_child[i][0], notas_seccion, num_est * sizeof(float));
+            
+            close(pipes_to_child[i][0]);
+            
             printf("--- Sección %d ---\n", i + 1);
             printf("Notas: ");
             float suma = 0.0;
-            for (j = 0; j < *(num_estudiantes + i); j++) {
-                printf("%.2f ", *(*(notas + i) + j));
-                suma += *(*(notas + i) + j);
+            for (j = 0; j < num_est; j++) {
+                printf("%.2f ", *(notas_seccion + j)); 
+                suma += *(notas_seccion + j);
             }
             printf("\n");
             
-            // Calcular promedio
-            float promedio = suma / *(num_estudiantes + i);
+            float promedio = suma / num_est;
             
-            // Enviar el promedio al padre
-            write(pipes[i][1], &promedio, sizeof(float));
-            close(pipes[i][1]);
+            write(pipes_from_child[i][1], &promedio, sizeof(float));
+            close(pipes_from_child[i][1]);
             
-            // Liberar memoria asignada
-            for (j = 0; j < num_secciones; j++) {
-                if (*(notas + j) != NULL) {
-                    free(*(notas + j));
-                }
-            }
-            free(notas);
-            free(num_estudiantes);
+            free(notas_seccion);
             
-            exit(0);  // Terminar proceso hijo
+            exit(0);
         }
     }
     
-    // Proceso padre
-    
-    // Cerrar extremos de escritura de pipes
     for (i = 0; i < num_secciones; i++) {
-        close(pipes[i][1]);
+        close(pipes_to_child[i][0]); 
+        close(pipes_from_child[i][1]); 
     }
     
-    // Esperar a todos los hijos
     for (i = 0; i < num_secciones; i++) {
-        wait(NULL);
+        write(pipes_to_child[i][1], (num_estudiantes + i), sizeof(int));
+        write(pipes_to_child[i][1], *(notas + i), *(num_estudiantes + i) * sizeof(float));
+        close(pipes_to_child[i][1]);
+        
+        int status;
+        waitpid(pids[i], &status, 0);
+        
+        read(pipes_from_child[i][0], (promedios + i), sizeof(float));
+        close(pipes_from_child[i][0]);
     }
     
-    // Leer los promedios enviados por los hijos
     float promedio_general = 0.0;
     int mejor_seccion = 0;
     float mejor_promedio = 0.0;
     
     for (i = 0; i < num_secciones; i++) {
-        read(pipes[i][0], &promedios[i], sizeof(float));
-        close(pipes[i][0]);
+        promedio_general += *(promedios + i);
         
-        promedio_general += promedios[i];
-        
-        if (i == 0 || promedios[i] > mejor_promedio) {
-            mejor_promedio = promedios[i];
+        if (i == 0 || *(promedios + i) > mejor_promedio) {
+            mejor_promedio = *(promedios + i);
             mejor_seccion = i;
         }
     }
     
     promedio_general /= num_secciones;
     
-    // Mostrar resultados
     for (i = 0; i < num_secciones; i++) {
-        printf("Promedio sección %d: %.2f\n", i + 1, promedios[i]);
+        printf("Promedio sección %d: %.2f\n", i + 1, *(promedios + i));
     }
     
     printf("Promedio general: %.2f\n", promedio_general);
     printf("Mejor sección: %d con promedio %.2f\n", mejor_seccion + 1, mejor_promedio);
     
-    // Liberar memoria
     for (i = 0; i < num_secciones; i++) {
         free(*(notas + i));
     }
